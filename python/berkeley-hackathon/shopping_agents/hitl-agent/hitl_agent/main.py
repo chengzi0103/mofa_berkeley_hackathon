@@ -22,13 +22,22 @@ class Click:
         self.start_server()
 
     def echo(self, message):
-        self.msg += message + "\n"
+        self.msg += message + "\n\n"
 
     def input(self, prompt: str, send=True):
-        if send:
-            Click.send_message(self.conn, self.msg)
-        self.msg = ""
-        return Click.receive_message(self.conn)
+        while True:
+            try:
+                if send:
+                    Click.send_message(self.conn, self.msg)
+                self.msg = ""
+                return Click.receive_message(self.conn)
+            except:
+                self.echo("Connection lost, please try again.")
+                self.conn.close()
+                conn, addr = self.server_socket.accept()
+                print(f"Connected by {addr}")
+                self.conn = conn
+                continue
     
     def send_message(conn, message):
         """Send an arbitrary-sized string over a socket connection."""
@@ -61,7 +70,20 @@ class Click:
         print(f"Connected by {addr}")
         self.conn = conn
 
+    def release_server(self):
+        self.conn.close()
+        self.server_socket.close()
+
 click = Click()
+
+import signal
+
+def signal_handler(sig, frame):
+    click.release_server()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 def clean_string(input_string:str):
     return input_string.encode('utf-8', 'replace').decode('utf-8')

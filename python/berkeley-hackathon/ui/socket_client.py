@@ -1,7 +1,50 @@
 import socket
 import time
+from types import TracebackType
 from typing import Callable
 import streamlit as st
+from mofa.utils.ai.conn import load_llm_api_key_by_env_file
+from openai import chat
+import openai
+
+import requests
+
+class OpenAIClient:
+    def __init__(self, api_key=load_llm_api_key_by_env_file(dotenv_path="../shopping_agents/.env.secret")):
+        self.api_key = api_key
+    
+    def generate_text(self, prompt):
+        """Generate text using OpenAI's GPT-4 model."""
+        # Save the previous openai.api_key
+        prev_api_key = openai.api_key
+        # Set the API key
+        openai.api_key = self.api_key
+        # Generate the text using OpenAI's GPT-4 model
+        import os
+        prev_env_api_key = os.environ.get("OPENAI_API_KEY", None)
+        os.environ["OPENAI_API_KEY"] = self.api_key
+        response = chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant. Help me with my text enhancement on shopping decision making. The output text should be in a markdown format and should have tables if necessary."},
+                {"role": "user", "content": str(prompt) + "\r\n\r\n According to the text above, enhance the text further. Output should be in a markdown format and should not have any other content and should not have markdown in the ``` code blocks. If we need user input, we can ask for it in the chat interface."}
+            ],
+            max_tokens=4096,
+            temperature=0.9,
+        )
+        # Set the API key back to the previous value
+        openai.api_key = prev_api_key
+        if prev_env_api_key is not None:
+            os.environ["OPENAI_API_KEY"] = prev_env_api_key
+        else:
+            del os.environ["OPENAI_API_KEY"]
+
+        response_text = ""
+
+        for completion in response.choices:
+            response_text += completion.message.content + "\n"
+
+        return response_text
 
 def send_message(sock, message):
     """Send an arbitrary-sized string over a socket."""
@@ -26,7 +69,9 @@ def receive_message(sock):
 
 def response_prompt(prompt: str):
     send_message(st.session_state.sock, prompt)
-    return receive_message(st.session_state.sock)
+    return receive_message(st.session_state.sock) \
+        if "openai" not in st.session_state else \
+            st.session_state.openai.generate_text(receive_message(st.session_state.sock))
 
 def display_chat_history():
     if "chat_history" not in st.session_state:
@@ -65,10 +110,6 @@ def check_connection():
     if "connected" not in st.session_state:
         st.session_state.connected = False
         st.session_state.sock = None
-    # If page is refreshed and there's an active connection, disconnect it
-    if not st.session_state.get("_is_fresh", False):
-        st.session_state["_is_fresh"] = True
-        cleanup_socket()
 
 def main():
     st.title("Shopping Agent UI")
@@ -76,6 +117,9 @@ def main():
     server_port = 12345
 
     check_connection()
+
+    if "openai" not in st.session_state:
+        st.session_state.openai = OpenAIClient()
 
     if "connected" not in st.session_state:
         st.session_state.connected = False
@@ -100,7 +144,8 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
+    # try:
         main()
-    except:
-        cleanup_socket()
+    # except Exception as e:
+    #     st.error(f"Error: {e.with_traceback(None)}")
+    #     cleanup_socket()
